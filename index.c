@@ -171,17 +171,23 @@ static int compare_index_entries(const void *a, const void *b) {
 }
 
 int index_save(const Index *index) {
-    Index sorted_index = *index;
-    qsort(sorted_index.entries, sorted_index.count, sizeof(IndexEntry), compare_index_entries);
+    Index *sorted_index = malloc(sizeof(Index));
+    if (!sorted_index) return -1;
+    *sorted_index = *index;
+    
+    qsort(sorted_index->entries, sorted_index->count, sizeof(IndexEntry), compare_index_entries);
     
     char temp_path[512];
     snprintf(temp_path, sizeof(temp_path), "%s.tmp", INDEX_FILE);
     
     FILE *f = fopen(temp_path, "w");
-    if (!f) return -1;
+    if (!f) {
+        free(sorted_index);
+        return -1;
+    }
     
-    for (int i = 0; i < sorted_index.count; i++) {
-        const IndexEntry *entry = &sorted_index.entries[i];
+    for (int i = 0; i < sorted_index->count; i++) {
+        const IndexEntry *entry = &sorted_index->entries[i];
         char hex[HASH_HEX_SIZE + 1];
         hash_to_hex(&entry->hash, hex);
         
@@ -195,8 +201,11 @@ int index_save(const Index *index) {
     
     if (rename(temp_path, INDEX_FILE) != 0) {
         unlink(temp_path);
+        free(sorted_index);
         return -1;
     }
+    
+    free(sorted_index);
     return 0;
 }
 
