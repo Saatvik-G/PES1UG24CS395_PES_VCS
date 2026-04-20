@@ -15,6 +15,9 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include "index.h"
+
+int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
 
 // ─── Mode Constants ─────────────────────────────────────────────────────────
 
@@ -129,6 +132,51 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //   - object_write    : save that binary buffer to the store as OBJ_TREE
 //
 // Returns 0 on success, -1 on error.
+static int write_tree_level(IndexEntry *entries, int count, int depth, ObjectID *out_id) {
+    Tree tree;
+    tree.count = 0;
+    
+    int i = 0;
+    while (i < count) {
+        IndexEntry *entry = &entries[i];
+        
+        const char *p = entry->path;
+        int current_depth = 0;
+        while (current_depth < depth) {
+            p = strchr(p, '/');
+            if (!p) break;
+            p++;
+            current_depth++;
+        }
+        
+        if (!p) {
+            i++;
+            continue;
+        }
+        
+        const char *next_slash = strchr(p, '/');
+        if (!next_slash) {
+            TreeEntry *t_entry = &tree.entries[tree.count++];
+            t_entry->mode = entry->mode;
+            strncpy(t_entry->name, p, sizeof(t_entry->name) - 1);
+            t_entry->name[sizeof(t_entry->name) - 1] = '\0';
+            t_entry->hash = entry->hash;
+            i++;
+        } else {
+            // TODO: directories
+            i++;
+        }
+    }
+    
+    void *data;
+    size_t len;
+    if (tree_serialize(&tree, &data, &len) != 0) return -1;
+    
+    int rc = object_write(OBJ_TREE, data, len, out_id);
+    free(data);
+    return rc;
+}
+
 int tree_from_index(ObjectID *id_out) {
     // TODO: Implement recursive tree building
     // (See Lab Appendix for logical steps)
