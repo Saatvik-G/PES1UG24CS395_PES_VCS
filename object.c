@@ -107,6 +107,56 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
     if (len > 0) memcpy(full_data + header_len + 1, data, len);
     
     compute_hash(full_data, full_len, id_out);
+    
+    if (object_exists(id_out)) {
+        free(full_data);
+        return 0;
+    }
+    
+    char shard_dir[512];
+    char hex[HASH_HEX_SIZE + 1];
+    hash_to_hex(id_out, hex);
+    snprintf(shard_dir, sizeof(shard_dir), "%s/%.2s", OBJECTS_DIR, hex);
+    
+    struct stat st = {0};
+    if (stat(shard_dir, &st) == -1) {
+        mkdir(shard_dir, 0755);
+    }
+    
+    char temp_path[512];
+    snprintf(temp_path, sizeof(temp_path), "%s/temp_XXXXXX", shard_dir);
+    
+    int fd = mkstemp(temp_path);
+    if (fd == -1) {
+        free(full_data);
+        return -1;
+    }
+    
+    if (write(fd, full_data, full_len) != (ssize_t)full_len) {
+        close(fd);
+        unlink(temp_path);
+        free(full_data);
+        return -1;
+    }
+    
+    fsync(fd);
+    close(fd);
+    
+    char final_path[512];
+    object_path(id_out, final_path, sizeof(final_path));
+    
+    if (rename(temp_path, final_path) != 0) {
+        unlink(temp_path);
+        free(full_data);
+        return -1;
+    }
+    
+    int dir_fd = open(shard_dir, O_RDONLY);
+    if (dir_fd != -1) {
+        fsync(dir_fd);
+        close(dir_fd);
+    }
+    
     free(full_data);
     return 0;
 }
